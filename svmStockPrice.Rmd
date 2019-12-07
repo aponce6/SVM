@@ -1,0 +1,247 @@
+---
+title: "SVM project"
+author: "Anthony Ponce"
+date: "9/27/2019"
+output:
+  html_document:
+    number_sections: yes
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+# Introduction
+This is an implementation of a support vector machine designed to identify short-term stock price changes, based on previous stock parameters: open, low, high, close, volume. This might be useful for day trades
+
+## Stock selected for this exercise:
+
+Nintendo recently announced a new console at a more affordable price for children. I figured stock activity would increase.
+
+```{r setup, echo=FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(e1071)
+```
+
+picture of the stock volume
+
+```{r echo=FALSE, out.width='100%'}
+knitr::include_graphics('NintendoVolume.jpeg')
+```
+
+picture of the stock price
+
+```{r echo=FALSE, out.width='100%'}
+knitr::include_graphics('NintendoPrice.jpeg')
+```
+
+## get data:
+
+```{r}
+NTDOYData = read.csv('NintendoStockChange.csv')
+View(NTDOYData)
+```
+
+Names of the variables in the data set: 
+price.open,	price.high,	price.low,	price.close,	volume,	price.adjusted,	ref.date'	ticker'	ret.adjusted.prices,	ret.closing.prices'	pctChange.	changeCategory	
+
+
+## set up data frame
+```{r}
+    NTDOYDataFrame = data.frame(open=NTDOYData$price.open,        high=NTDOYData$price.high,  low=NTDOYData$price.low, close=NTDOYData$price.close,volume= NTDOYData$volume/10000, 
+      change = NTDOYData$changeCategory )
+# look at top and bottom..
+head(NTDOYDataFrame)
+tail(NTDOYDataFrame)
+remove(NTDOYData)
+```
+
+```{r}
+levels(NTDOYDataFrame$change)
+plot(NTDOYDataFrame)
+```
+
+
+## classification model, categorical response
+
+### traditional interface:
+```{r}
+x <- subset(NTDOYDataFrame[1:366,], select = -change)
+y <- NTDOYDataFrame[1:366,]$change
+model1 <- svm(x, y) 
+#model1 is all the data
+print(model1)
+summary(model1)
+```
+
+
+
+## how well did the model fit?
+
+```{r}
+pred <- predict(model1, x)
+# Check accuracy:
+table(pred, y)
+```
+
+## decision values
+
+```{r}
+# compute decision values and probabilities:
+pred <- predict(model1, x, decision.values = TRUE)
+attr(pred, "decision.values")[1:6,]
+# visualize (classes by color, SV by crosses):
+plot(cmdscale(dist(NTDOYDataFrame[,-6])),
+     col = as.integer(NTDOYDataFrame[,6]),xlab="normalized X", ylab = "weitghted change",
+     pch = c("o","+")[1:150 %in% model1$index + 1])
+legend('bottomleft',c('data','prediction'),pch=c('0','+'))
+grid()
+     
+```
+
+
+# train and test sets:
+
+```{r}
+pctTrain=0.75  # use about 70% of the data
+nObs = length(x[,1])
+nObs = 366
+nTrain = round(pctTrain*nObs,0)
+# next line take data in order
+#TrainSetIndex = 1:nTrain
+# These lines take a random sample
+scramble = sample(1:nObs)
+TrainSetIndex = scramble[1:nTrain]
+TestSetIndex = scramble[(nTrain+1):nObs]
+```
+
+## set up training set, test set
+
+```{r}
+# first the training set
+NTDOYDataFrame1 = NTDOYDataFrame[1:366,]
+XtrainSet = NTDOYDataFrame1[TrainSetIndex,-6]
+YtrainSet = NTDOYDataFrame1$change[TrainSetIndex]
+```
+
+## get the model from training set.. 
+This is model2
+
+```{r}
+model2 <- svm(XtrainSet, YtrainSet) 
+print(model2)
+summary(model2)
+```
+
+## now the test set.. 
+now see how model2 does on the training set
+
+```{r}
+XtestSet = NTDOYDataFrame1[(TestSetIndex),-6]
+YtestSet = NTDOYDataFrame1$change[TestSetIndex]
+```
+
+## and evaluate with the test data
+
+```{r}
+pred2 <- predict(model2, XtestSet)
+# And the accuracy..
+table(pred2, YtestSet)
+```
+
+## tune
+
+```{r}
+stockTuned <- tune.svm(XtrainSet, YtrainSet, gamma = 2^(-2:1), cost = 2^(1:4))
+summary(stockTuned)
+plot(stockTuned)
+print(paste('best parameters: gamma=',stockTuned$best.parameters[1], ', cost=', stockTuned$best.parameters[2]))
+```
+
+```{r}
+#use optimized parameters... 
+model3 <- svm(XtrainSet, YtrainSet, gamma=as.numeric(stockTuned$best.parameters[1]), cost=as.numeric(stockTuned$best.parameters[2] )) 
+print(model3)
+summary(model3)
+```
+
+```{r}
+pred3 <- predict(model3, XtestSet)
+# And the accuracy..
+table(pred3, YtestSet)
+```
+
+Now use the last 5 values to see how we do
+
+```{r}
+XtestSetFortheMoney = NTDOYDataFrame[367:371,-6]
+YtestSetFortheMoney  = NTDOYDataFrame[367:371,6]
+pred4 <- predict(model3, XtestSetFortheMoney)
+# And the accuracy..
+print(pred4)
+#table(pred4, YtestSetFortheMoney)
+```
+
+The actual last 5 days were DOWN DOWN DOWN DOWN STABLE
+
+ROI = negative too much
+
+
+
+
+```{r}
+# compute decision values and probabilities:
+pred <- predict(model3, XtestSet, decision.values = TRUE)
+attr(pred, "decision.values")[1:6,]
+# visualize (classes by color, SV by crosses):
+plot(cmdscale(dist(XtestSet)),
+     col = as.integer(YtestSet),xlab="normalized X", ylab = "weighted  change",
+     pch = c("o","+")[1:150 %in% model3$index + 1])
+legend('bottomright',c('data','prediction'),pch=c('0','+'))
+grid()
+```
+
+
+
+
+# SVM assignment
+
+## complete an rmarkdown file on the stock you selected.   
+  You will turn in the URL for your github accout that has the repo for this assignment.
+
+### Identify the stock you use for this assignment.  
+  Why did you choose this particular stock?  Had lots of variability 
+
+<!--   Include in your final report a graph of the stock closing price over the period 20 Jan 2018 to 13 Sept 2019.  Include the .csv file in your repo for the stock you selected.  !-->
+
+### Use this template to get the SVM:  
+
+  1. Training and Test sets:    
+<!--    What percent of the stock data did you use for the training set?  How did you select the training set size?  
+    Did you select the training set to be the chronological first data observations, and the test set to be the following observations, or did you choose to randomly sample the stock data to get the training set and use the remaining observations for the test set?  Justification for your choice? !-->  
+
+I used 75% of the data for the training set.
+I picked the testing data set by a random sample asssignment.    
+    
+  2. How well did the SVM do?  
+<!-- show the table of predicted vs truth for the whole data set, and then the same table for predicted vs actual results for just the test set.  !-->
+
+Did not do well.. Only predicted 
+
+  3. Tune the algorithm- i.e. find optimal gamma and cost values.  <!--Use these valuse to recompute the table of predicted vs actual results for the test set. !-->
+  
+  tuned it, found optimal gamma and cost values, didn't seem to help
+  
+
+### Evaluate SVM performance     
+
+  1. Did you exmine using other than the 'open', 'low', 'high', 'close' prices and volume as predictors? 
+No, I did not.  
+  
+  
+  2. Use the SVM you developed to predict stock moves on 16 - 20 Sept. 2019.  Compute the ROI assuming the SVM identifies an opportunity, (for example use around $1000 on each of the SVM predictions)
+<!-- There are 5 days available for prediction; if the daily prediction was 'U' buy the stock, then cash out when/if price increases within 5 days. If the daily predictions is 'D', sell the shock short and cash out within 5 days.  If the prediction is E, no investment.  Include your ROI results !-->  
+
+Predicted STABLE for the first 4 days and DOWN for the last day.
+  
+  3.  Would you put your own $$ in this SVM?  
+  You gotta be kidding me.. 
